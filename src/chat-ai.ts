@@ -39,7 +39,7 @@ function gatewayOpts(env: AiEnv) {
 }
 
 function modelId(env: AiEnv): string {
-  return env.AI_MODEL || "@hf/nousresearch/hermes-2-pro-mistral-7b";
+  return env.AI_MODEL || "@cf/ibm-granite/granite-4.0-h-micro";
 }
 
 function extractText(result: unknown): string {

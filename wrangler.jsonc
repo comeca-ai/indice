@@ -15,7 +15,7 @@
   },
   "vars": {
     "AI_GATEWAY_ID": "indicie",
-    "AI_MODEL": "@hf/nousresearch/hermes-2-pro-mistral-7b"
+    "AI_MODEL": "@cf/ibm-granite/granite-4.0-h-micro"
   },
   "r2_buckets": [
     {
