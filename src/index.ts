@@ -1,7 +1,8 @@
+import { handleAuth, getSessionUser, type AuthEnv } from "./auth";
 import { handleChatAi, handleChatRules, handleChatStream, type ChatTurn } from "./chat-ai";
 import { extractCnpj, fetchEmpresa, onlyDigits, type Empresa } from "./tools";
 
-export interface Env {
+export interface Env extends AuthEnv {
   ASSETS: Fetcher;
   CNPJ_DATA: R2Bucket;
   AI: Ai;
@@ -23,12 +24,30 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    const authRes = await handleAuth(request, env, url.pathname);
+    if (authRes) return authRes;
+
+    const downloadMatch = url.pathname.match(/^\/download\/setor\/([^/]+)$/);
+    if (request.method === "GET" && downloadMatch) {
+      const user = await getSessionUser(request, env);
+      if (!user) return json({ ok: false, error: "nao_autenticado" }, 401);
+      const setor = decodeURIComponent(downloadMatch[1]);
+      return json({
+        ok: true,
+        setor,
+        placeholder: true,
+        note: "Download de setor ainda não ligado — requer sessão.",
+        user: { id: user.id, email: user.email },
+      });
+    }
+
     if (request.method === "GET" && url.pathname === "/api/health") {
       const listed = await env.CNPJ_DATA.list({ limit: 5 });
       return json({
         ok: true,
         service: "indicie",
         chat: true,
+        auth: true,
         ai: Boolean(env.AI),
         ai_gateway: env.AI_GATEWAY_ID || "indicie",
         live_cnpj_lookup: "brasilapi",
