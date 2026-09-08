@@ -6,7 +6,7 @@
   "workers_dev": true,
   "vars": {
     "AI_GATEWAY_ID": "indicie",
-    "AI_MODEL": "@hf/nousresearch/hermes-2-pro-mistral-7b",
+    "AI_MODEL": "@cf/meta/llama-3.1-8b-instruct-fast",
     "SESSION_SECRET": "troque-via-wrangler-secret-put-SESSION_SECRET"
   },
   "assets": {
@@ -28,7 +28,7 @@
     {
       "binding": "DB",
       "database_name": "indicie-auth",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "65d8f3c3-9ef8-4039-b85d-4613e6c0d1ff",
       "migrations_dir": "migrations"
     }
   ],
