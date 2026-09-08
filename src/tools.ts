@@ -1,4 +1,4 @@
-/** Tools CNPJ — lookup live; busca textual via contrato R2 da carga. */
+/** Tools CNPJ — lookup live; busca textual via contrato R2 (docs/r2-search-contract.md). */
 
 import { parquetReadObjects } from "hyparquet";
 

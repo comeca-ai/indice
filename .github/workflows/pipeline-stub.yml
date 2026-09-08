@@ -17,8 +17,10 @@ jobs:
       - name: Documentar pipeline
         run: |
           echo "Indicie — pipeline stub (workflow_dispatch)"
-          echo "1. Baixar dados publicos da Receita Federal"
-          echo "2. Converter para Parquet particionado (ex.: por UF)"
-          echo "3. Upload para o bucket R2 indicie-cnpj"
-          echo "4. Validar GET /api/health no Worker indicie"
-          echo "Opcao operacional: imagem GHCR para o job de ingestao"
+          echo "Docs: docs/cnpj-ingest.md | docs/r2-search-contract.md | docs/d1-search-schema.md"
+          echo "Sample script: pipelines/cnpj/sample_cnaes_to_parquet.py"
+          echo "1. Baixar dados publicos da Receita Federal (WebDAV share YggdBLfdninEJX9 / dados.gov)"
+          echo "2. Converter CSV Latin-1 para Parquet ZSTD (prefixos em r2-search-contract)"
+          echo "3. Upload para o bucket R2 indicie-cnpj (binding CNPJ_DATA)"
+          echo "4. Atualizar manifests/latest.json e validar GET /api/health"
+          echo "GHCR ghcr.io/caiopizzol/cnpj-data-pipeline: NEED_LICENSE_REVIEW — runner externo, sem vendor"
