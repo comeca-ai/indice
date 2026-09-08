@@ -1,44 +1,28 @@
 # Indície
 
-Consulta de CNPJ na edge — Cloudflare Workers + Assets (SPA) + R2.
+Consulta conversacional de CNPJ — Workers + R2 + AI Gateway.
 
-- Produto: Indície
-- Domínio: indicie.ia.br
 - Worker: indicie
-- Bucket R2: indicie-cnpj
+- Bucket: indicie-cnpj
+- Live: https://indicie.jhonata-emerick.workers.dev
 
 ## Stack
+- src/index.ts, src/chat-ai.ts, src/tools.ts
+- AI binding + AI_GATEWAY_ID=indicie
+- R2 CNPJ_DATA
+- Auth = porteiro; ingest = carga
 
-- Worker TypeScript (src/index.ts)
-- Assets estaticos em public/ (UI PT-BR)
-- Binding R2 CNPJ_DATA -> bucket indicie-cnpj
-- run_worker_first /api/* antes dos assets
+## Chat
+POST /api/chat { message, history?, lastEmpresa?, stream? }
+- Tools: consulta_cnpj; busca_textual when R2 has index
+- source: ai-gateway | brasilapi | followup | guide
+- stream true returns SSE
 
-## API (stubs)
+## Gateway
+1. Create AI Gateway id indicie or default
+2. Prefer Workers AI via Gateway
+3. Default model hermes-2-pro
 
-- GET /api/health — health + amostra R2
-- GET /api/search?q= — busca (empty: true)
-- GET /api/empresa/:cnpj — lookup (empty: true)
-
-## Comandos locais
-
-- install / dev / build / deploy / types via package.json
-
-## Deploy com Workers Builds
-
-1. Cloudflare dashboard → Workers and Pages → Connect to Git → comeca-ai/indice.
-2. Workers Builds no branch main (deploy: npx wrangler deploy).
-3. Criar bucket R2 indicie-cnpj (binding CNPJ_DATA ja no wrangler.jsonc).
-4. Custom Domain: indicie.ia.br no Worker indicie.
-5. Validar https://indicie.ia.br/api/health apos o deploy.
-
-## Pipeline de dados (Parquet para R2)
-
-Dados da Receita Federal devem ir para Parquet e depois ao bucket indicie-cnpj.
-Workflow stub: .github/workflows/pipeline-stub.yml (workflow_dispatch).
-
-Opcao operacional: job de ingestao via imagem no GHCR (GitHub Container Registry) quando o pipeline estiver pronto — util para Actions ou runners self-hosted.
-
-## Licenca
-
+## API
+health chat search empresa
 MIT
