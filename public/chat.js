@@ -11,6 +11,10 @@ const msgInput = document.querySelector("#msg");
 /** @type {{role: string, content: string}[]} */
 let history = [];
 let lastEmpresa = null;
+/** @type {Record<string, string>|null} */
+let filters = null;
+/** @type {any[]|null} */
+let results = null;
 
 function enterChat() {
   app.classList.remove("mode-landing");
@@ -24,6 +28,8 @@ function enterChat() {
 function resetChat() {
   history = [];
   lastEmpresa = null;
+  filters = null;
+  results = null;
   thread.innerHTML = "";
   app.classList.add("mode-landing");
   app.classList.remove("mode-chat");
@@ -87,8 +93,7 @@ function addRow(role, text, empresa = null) {
   row.className = `row ${role}`;
   const avatar = document.createElement("div");
   avatar.className = "avatar";
-  avatar.textContent = role === "user" ? "Você" : "Í";
-  if (role === "user") avatar.textContent = "EU";
+  avatar.textContent = role === "user" ? "EU" : "Í";
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   bubble.innerHTML = renderText(text) + (empresa ? empresaCard(empresa) : "");
@@ -103,17 +108,27 @@ async function ask(message) {
   enterChat();
   addRow("user", message);
   history.push({ role: "user", content: message });
-  const thinking = addRow("assistant", "consultando…");
+  const thinking = addRow("assistant", "…");
   thinking.classList.add("dim");
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message, history, lastEmpresa, stream: false }),
+      body: JSON.stringify({
+        message,
+        history,
+        lastEmpresa,
+        filters,
+        results,
+        stream: false,
+      }),
     });
     const data = await res.json();
     thinking.parentElement.remove();
     if (data.empresa) lastEmpresa = data.empresa;
+    if (data.filters) filters = data.filters;
+    if (data.results) results = data.results;
+    if (data.phase === "results") results = data.results || results;
     addRow("assistant", data.reply || data.error || "Sem resposta.", data.empresa || null);
     history.push({ role: "assistant", content: data.reply || "" });
   } catch {

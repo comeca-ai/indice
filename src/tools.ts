@@ -1,4 +1,4 @@
-/** Tools CNPJ — lookup live; busca textual via contrato R2 (docs/r2-search-contract.md). */
+/** Tools CNPJ — lookup live; busca textual via contrato R2 da carga. */
 
 import { parquetReadObjects } from "hyparquet";
 
@@ -25,6 +25,17 @@ export type SearchHit = {
   porte?: string;
   natureza_juridica?: string;
   matriz_filial?: string;
+  data_inicio_atividade?: string;
+};
+
+export type BuscaFiltros = {
+  q?: string;
+  uf?: string;
+  municipio?: string;
+  cnae?: string;
+  situacao?: string;
+  matriz_filial?: string;
+  limit?: number;
 };
 
 export function onlyDigits(value: string): string {
@@ -68,7 +79,7 @@ export async function fetchEmpresa(
   return { ok: true, data: (await res.json()) as Empresa };
 }
 
-/** Contrato carga: índice ativo = manifests/latest.json presente e legível. */
+/** Índice de busca ativo = manifests/latest.json com search_key preenchido. */
 export async function readSearchManifest(bucket: R2Bucket): Promise<SearchManifest | null> {
   const obj = await bucket.get("manifests/latest.json");
   if (!obj) return null;
@@ -87,19 +98,19 @@ export async function r2HasIndex(bucket: R2Bucket): Promise<boolean> {
 
 export async function buscaTextualR2(
   bucket: R2Bucket,
-  q: string,
-  uf?: string,
-  limit = 20,
+  filtros: BuscaFiltros,
 ): Promise<
   | { ok: true; snapshot: string; search_key: string; results: SearchHit[] }
   | { ok: false; error: string; message: string }
 > {
+  const limit = filtros.limit ?? 20;
   const manifest = await readSearchManifest(bucket);
   if (!manifest) {
     return {
       ok: false,
       error: "indice_indisponivel",
-      message: "Índice R2 ainda vazio (sem manifests/latest.json). Peça um CNPJ ou aguarde a carga.",
+      message:
+        "Índice de estabelecimentos ainda não disponível (search_key vazio). Manda um CNPJ ou aguarde a carga.",
     };
   }
 
@@ -113,38 +124,56 @@ export async function buscaTextualR2(
   }
 
   const buf = await fileObj.arrayBuffer();
-  const needle = normalizeSearch(q);
-  const ufNorm = uf ? uf.trim().toUpperCase() : "";
+  const ufNorm = filtros.uf ? filtros.uf.trim().toUpperCase() : "";
+  const munNorm = filtros.municipio ? normalizeSearch(filtros.municipio) : "";
+  const cnaeRaw = filtros.cnae || "";
+  const cnaeDigits = onlyDigits(cnaeRaw);
+  const cnaeText = cnaeDigits.length >= 4 ? "" : normalizeSearch(cnaeRaw);
+  const sitNorm = filtros.situacao ? normalizeSearch(filtros.situacao) : "";
+  const matriz = filtros.matriz_filial ? String(filtros.matriz_filial) : "";
+  const qNorm = filtros.q ? normalizeSearch(filtros.q) : "";
 
-  // Sample/nacional: lê objetos e filtra em memória (ok pra sample; D1 FTS vem da carga depois).
   const rows = (await parquetReadObjects({ file: buf })) as Record<string, unknown>[];
   const results: SearchHit[] = [];
 
   for (const row of rows) {
-    if (ufNorm) {
-      const rowUf = String(row.uf ?? "").toUpperCase();
-      if (rowUf !== ufNorm) continue;
+    if (ufNorm && String(row.uf ?? "").toUpperCase() !== ufNorm) continue;
+    if (munNorm && !normalizeSearch(String(row.municipio ?? "")).includes(munNorm)) continue;
+    if (cnaeDigits.length >= 4) {
+      const rowCnae = onlyDigits(String(row.cnae_fiscal_principal ?? ""));
+      if (!rowCnae.startsWith(cnaeDigits)) continue;
+    } else if (cnaeText) {
+      const blob = normalizeSearch(
+        `${row.cnae_fiscal_principal ?? ""} ${row.search_norm ?? ""} ${row.razao_social ?? ""}`,
+      );
+      if (!blob.includes(cnaeText)) continue;
     }
-    const hay = normalizeSearch(
-      String(row.search_norm ?? `${row.razao_social ?? ""} ${row.nome_fantasia ?? ""}`),
-    );
-    if (!needle || hay.includes(needle)) {
-      results.push({
-        cnpj: onlyDigits(String(row.cnpj ?? "")),
-        cnpj_basico: row.cnpj_basico != null ? String(row.cnpj_basico) : undefined,
-        razao_social: row.razao_social != null ? String(row.razao_social) : undefined,
-        nome_fantasia: row.nome_fantasia != null ? String(row.nome_fantasia) : undefined,
-        situacao_cadastral: row.situacao_cadastral != null ? String(row.situacao_cadastral) : undefined,
-        cnae_fiscal_principal: row.cnae_fiscal_principal != null ? String(row.cnae_fiscal_principal) : undefined,
-        uf: row.uf != null ? String(row.uf) : undefined,
-        municipio: row.municipio != null ? String(row.municipio) : undefined,
-        cep: row.cep != null ? String(row.cep) : undefined,
-        porte: row.porte != null ? String(row.porte) : undefined,
-        natureza_juridica: row.natureza_juridica != null ? String(row.natureza_juridica) : undefined,
-        matriz_filial: row.matriz_filial != null ? String(row.matriz_filial) : undefined,
-      });
-      if (results.length >= limit) break;
+    if (sitNorm && !normalizeSearch(String(row.situacao_cadastral ?? "")).includes(sitNorm)) continue;
+    if (matriz && String(row.matriz_filial ?? "") !== matriz) continue;
+    if (qNorm) {
+      const hay = normalizeSearch(
+        String(row.search_norm ?? `${row.razao_social ?? ""} ${row.nome_fantasia ?? ""}`),
+      );
+      if (!hay.includes(qNorm)) continue;
     }
+
+    results.push({
+      cnpj: onlyDigits(String(row.cnpj ?? "")),
+      cnpj_basico: row.cnpj_basico != null ? String(row.cnpj_basico) : undefined,
+      razao_social: row.razao_social != null ? String(row.razao_social) : undefined,
+      nome_fantasia: row.nome_fantasia != null ? String(row.nome_fantasia) : undefined,
+      situacao_cadastral: row.situacao_cadastral != null ? String(row.situacao_cadastral) : undefined,
+      cnae_fiscal_principal: row.cnae_fiscal_principal != null ? String(row.cnae_fiscal_principal) : undefined,
+      uf: row.uf != null ? String(row.uf) : undefined,
+      municipio: row.municipio != null ? String(row.municipio) : undefined,
+      cep: row.cep != null ? String(row.cep) : undefined,
+      porte: row.porte != null ? String(row.porte) : undefined,
+      natureza_juridica: row.natureza_juridica != null ? String(row.natureza_juridica) : undefined,
+      matriz_filial: row.matriz_filial != null ? String(row.matriz_filial) : undefined,
+      data_inicio_atividade:
+        row.data_inicio_atividade != null ? String(row.data_inicio_atividade) : undefined,
+    });
+    if (results.length >= limit) break;
   }
 
   return {
@@ -155,7 +184,6 @@ export async function buscaTextualR2(
   };
 }
 
-/** Schema OpenAI-style / Workers AI tools */
 export function buildTools(hasIndex: boolean) {
   const tools: Array<{
     name: string;
@@ -168,15 +196,11 @@ export function buildTools(hasIndex: boolean) {
   }> = [
     {
       name: "consulta_cnpj",
-      description:
-        "Consulta dados públicos de um CNPJ na Receita (via BrasilAPI). Use sempre que o usuário informar ou pedir dados de um CNPJ específico.",
+      description: "Consulta CNPJ público (BrasilAPI). Use quando houver CNPJ de 14 dígitos.",
       parameters: {
         type: "object",
         properties: {
-          cnpj: {
-            type: "string",
-            description: "CNPJ com 14 dígitos (com ou sem máscara).",
-          },
+          cnpj: { type: "string", description: "CNPJ 14 dígitos." },
         },
         required: ["cnpj"],
       },
@@ -186,14 +210,18 @@ export function buildTools(hasIndex: boolean) {
     tools.push({
       name: "busca_textual",
       description:
-        "Busca empresas no índice nacional R2 (search_norm / razão / fantasia), com UF opcional. Use quando NÃO houver CNPJ e o usuário pedir lista/filtro.",
+        "Lista empresas no R2 com filtros UF + município/CNAE (situação e matriz/filial opcionais). Sem bate-papo.",
       parameters: {
         type: "object",
         properties: {
-          q: { type: "string", description: "Texto de busca (razão social, fantasia, cidade…)." },
-          uf: { type: "string", description: "UF opcional (2 letras)." },
+          uf: { type: "string", description: "UF 2 letras." },
+          municipio: { type: "string", description: "Município." },
+          cnae: { type: "string", description: "CNAE ou atividade." },
+          q: { type: "string", description: "Texto livre opcional." },
+          situacao: { type: "string", description: "ATIVA/BAIXADA/…" },
+          matriz_filial: { type: "string", description: "1=matriz 2=filial" },
         },
-        required: ["q"],
+        required: ["uf"],
       },
     });
   }
@@ -214,30 +242,25 @@ export async function runTool(
     if (!result.ok) {
       return { content: JSON.stringify({ error: result.error, status: result.status, cnpj }) };
     }
-    return {
-      content: JSON.stringify(result.data),
-      empresa: result.data,
-    };
+    return { content: JSON.stringify(result.data), empresa: result.data };
   }
 
   if (name === "busca_textual") {
-    const q = String(args.q ?? "").trim();
-    const uf = args.uf != null ? String(args.uf) : undefined;
-    if (!q) {
-      return { content: JSON.stringify({ error: "q_obrigatorio" }) };
-    }
+    const uf = args.uf != null ? String(args.uf).trim() : "";
+    if (!uf) return { content: JSON.stringify({ error: "uf_obrigatorio" }) };
     try {
-      const out = await buscaTextualR2(env.CNPJ_DATA, q, uf);
+      const out = await buscaTextualR2(env.CNPJ_DATA, {
+        uf,
+        q: args.q != null ? String(args.q) : undefined,
+        municipio: args.municipio != null ? String(args.municipio) : undefined,
+        cnae: args.cnae != null ? String(args.cnae) : undefined,
+        situacao: args.situacao != null ? String(args.situacao) : undefined,
+        matriz_filial: args.matriz_filial != null ? String(args.matriz_filial) : undefined,
+      });
       return { content: JSON.stringify(out) };
     } catch (err) {
       const message = err instanceof Error ? err.message : "busca_falhou";
-      return {
-        content: JSON.stringify({
-          ok: false,
-          error: "parquet_erro",
-          message,
-        }),
-      };
+      return { content: JSON.stringify({ ok: false, error: "parquet_erro", message }) };
     }
   }
 
