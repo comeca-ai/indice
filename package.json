@@ -1,0 +1,16 @@
+{
+  "name": "indicie",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "echo ok",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250905.0",
+    "typescript": "^5.9.2",
+    "wrangler": "4.34.0"
+  }
+}

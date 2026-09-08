@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Buscar · Indície</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="logo">Í</span> Indície</a>
+      <nav class="nav">
+        <a href="/">Início</a>
+        <a class="active" href="/buscar.html">Buscar</a>
+        <a href="/uf/sp.html">São Paulo</a>
+      </nav>
+    </header>
+    <section class="hero" style="padding-bottom:1rem;">
+      <div class="eyebrow">Busca</div>
+      <h1>Encontre uma empresa</h1>
+      <p class="lede">Stub de busca: a API retorna <span class="mono">empty: true</span> até o índice R2 estar ligado.</p>
+      <form id="search-form" class="card search-row">
+        <input id="q" name="q" type="search" placeholder="Digite CNPJ ou nome" autocomplete="off" required />
+        <button class="btn" type="submit">Buscar</button>
+      </form>
+    </section>
+    <section class="panel">
+      <h2>Resultados</h2>
+      <div id="results" class="results"><div class="empty">Informe um termo para consultar.</div></div>
+    </section>
+    <footer class="footer"><span>© 2026 Indície · MIT</span><span id="health" class="muted">…</span></footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

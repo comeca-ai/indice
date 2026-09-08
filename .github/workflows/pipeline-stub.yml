@@ -1,0 +1,24 @@
+name: pipeline-stub
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: Documenta o fluxo parquet para R2 (ainda nao executa ingestao)
+        required: false
+        default: dry-run
+
+jobs:
+  document:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Documentar pipeline
+        run: |
+          echo "Indicie — pipeline stub (workflow_dispatch)"
+          echo "1. Baixar dados publicos da Receita Federal"
+          echo "2. Converter para Parquet particionado (ex.: por UF)"
+          echo "3. Upload para o bucket R2 indicie-cnpj"
+          echo "4. Validar GET /api/health no Worker indicie"
+          echo "Opcao operacional: imagem GHCR para o job de ingestao"

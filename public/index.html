@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Indície — Consulta de CNPJ</title>
+  <meta name="description" content="Indície: consulta rápida e séria de empresas brasileiras por CNPJ." />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="logo">Í</span> Indície</a>
+      <nav class="nav">
+        <a class="active" href="/">Início</a>
+        <a href="/buscar.html">Buscar</a>
+        <a href="/uf/sp.html">São Paulo</a>
+        <a href="/api/health">API</a>
+      </nav>
+    </header>
+    <section class="hero">
+      <div class="eyebrow">Dados públicos · Cloudflare Workers</div>
+      <h1>Consulta de CNPJ com infraestrutura séria.</h1>
+      <p class="lede">Indície é um produto de consulta empresarial focado em velocidade, clareza e dados oficiais da Receita Federal — servido em <strong>indicie.ia.br</strong>.</p>
+      <form id="search-form" class="card search-row" action="/buscar.html" method="get">
+        <input id="q" name="q" type="search" placeholder="CNPJ, razão social ou nome fantasia" autocomplete="off" required />
+        <button class="btn" type="submit">Buscar</button>
+      </form>
+      <div class="tag" id="health">Verificando API…</div>
+    </section>
+    <section class="grid">
+      <article class="card stat"><h3>Fonte</h3><p>Receita Federal</p></article>
+      <article class="card stat"><h3>Armazenamento</h3><p>Cloudflare R2</p></article>
+      <article class="card stat"><h3>Edge</h3><p>Workers + Assets</p></article>
+    </section>
+    <section class="panel card">
+      <h2>Como funciona</h2>
+      <p class="muted">A API sob <span class="mono">/api/*</span> roda no Worker antes dos assets. Os dados CNPJ vivem no bucket R2 <span class="mono">indicie-cnpj</span>. A UI estática é SPA com fallback para navegação limpa.</p>
+    </section>
+    <footer class="footer"><span>© 2026 Indície · MIT</span><span class="mono">indicie.ia.br</span></footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
