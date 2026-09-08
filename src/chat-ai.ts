@@ -1,5 +1,6 @@
 import {
   buildTools,
+  buscaTextualR2,
   extractCnpj,
   fetchEmpresa,
   formatCnpj,
@@ -21,10 +22,10 @@ export interface AiEnv {
 
 const SYSTEM = `Você é o assistente da Indície (PT-BR). Ajuda a consultar CNPJs públicos da Receita Federal.
 Regras:
-- Nunca invente dados de empresa. Use a tool consulta_cnpj para fatos.
+- Nunca invente dados de empresa. Use só os fatos fornecidos no contexto/tools.
 - Se não houver CNPJ e a busca textual não estiver disponível, peça um CNPJ (ex.: 00.000.000/0001-91).
 - Respostas curtas, claras, com markdown leve (**negrito**, \`código\`).
-- Follow-ups (sócios, CNAE, endereço, capital) usam o contexto da última empresa ou nova consulta.
+- Follow-ups (sócios, CNAE, endereço, capital) usam o contexto da última empresa.
 - Dados são públicos; não peça CPF/senha.`;
 
 type ToolCall = { name: string; arguments: Record<string, unknown> };
@@ -39,7 +40,7 @@ function gatewayOpts(env: AiEnv) {
 }
 
 function modelId(env: AiEnv): string {
-  return env.AI_MODEL || "@hf/nousresearch/hermes-2-pro-mistral-7b";
+  return env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct-fast";
 }
 
 function extractText(result: unknown): string {
@@ -50,6 +51,12 @@ function extractText(result: unknown): string {
     if (typeof o.response === "string") return o.response;
     if (typeof o.text === "string") return o.text;
     if (typeof o.content === "string") return o.content;
+    // some models return { message: { content } } or choices
+    const msg = o.message;
+    if (msg && typeof msg === "object") {
+      const c = (msg as Record<string, unknown>).content;
+      if (typeof c === "string") return c;
+    }
   }
   return "";
 }
@@ -63,24 +70,40 @@ function extractToolCalls(result: unknown): ToolCall[] {
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const t = item as Record<string, unknown>;
-    const name = String(t.name || "");
+    let name = String(t.name || "");
     let args: Record<string, unknown> = {};
-    const a = t.arguments;
-    if (typeof a === "string") {
-      try {
-        args = JSON.parse(a) as Record<string, unknown>;
-      } catch {
-        args = {};
+    const fn = t.function;
+    if (fn && typeof fn === "object") {
+      const f = fn as Record<string, unknown>;
+      name = String(f.name || name);
+      const a = f.arguments;
+      if (typeof a === "string") {
+        try {
+          args = JSON.parse(a) as Record<string, unknown>;
+        } catch {
+          args = {};
+        }
+      } else if (a && typeof a === "object") {
+        args = a as Record<string, unknown>;
       }
-    } else if (a && typeof a === "object") {
-      args = a as Record<string, unknown>;
+    } else {
+      const a = t.arguments;
+      if (typeof a === "string") {
+        try {
+          args = JSON.parse(a) as Record<string, unknown>;
+        } catch {
+          args = {};
+        }
+      } else if (a && typeof a === "object") {
+        args = a as Record<string, unknown>;
+      }
     }
     if (name) out.push({ name, arguments: args });
   }
   return out;
 }
 
-/** Fallback determinístico (live atual) se AI falhar. */
+/** Fallback determinístico se AI falhar. */
 export async function handleChatRules(
   message: string,
   env: AiEnv,
@@ -169,11 +192,32 @@ export async function handleChatRules(
   }
 
   return {
-    reply: "Índice R2 detectado, mas a busca textual ainda não está ligada. Manda um CNPJ por enquanto.",
-    source: "r2-pending",
+    reply: "Índice R2 detectado. Descreva a busca (nome, cidade, UF) ou mande um CNPJ.",
+    source: "r2-ready",
   };
 }
 
+async function runLlm(
+  env: AiEnv,
+  messages: Array<Record<string, unknown>>,
+  tools?: ReturnType<typeof buildTools>,
+): Promise<unknown> {
+  const payload: Record<string, unknown> = { messages };
+  if (tools?.length) {
+    // OpenAI-style + flat (Workers AI models vary)
+    payload.tools = tools.map((t) => ({
+      type: "function",
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      },
+    }));
+  }
+  return env.AI.run(modelId(env) as keyof AiModels, payload as any, gatewayOpts(env));
+}
+
+/** Orquestra fatos (BrasilAPI/R2) + NL via Gateway. */
 export async function handleChatAi(
   message: string,
   history: ChatTurn[],
@@ -181,80 +225,86 @@ export async function handleChatAi(
   lastEmpresa: Empresa | null,
 ): Promise<{ reply: string; empresa?: Empresa; source: string }> {
   const hasIndex = await r2HasIndex(env.CNPJ_DATA);
-  const tools = buildTools(hasIndex);
+  let empresa: Empresa | undefined = lastEmpresa ?? undefined;
+  const facts: string[] = [];
 
-  const messages: Array<Record<string, unknown>> = [
-    { role: "system", content: SYSTEM },
-  ];
-
-  if (lastEmpresa) {
-    messages.push({
-      role: "system",
-      content: `Contexto da última empresa consultada (JSON):\n${JSON.stringify(lastEmpresa).slice(0, 6000)}`,
-    });
+  // 1) Tools locais (determinísticas) — não dependem do modelo entender function-calling
+  const cnpj = extractCnpj(message);
+  if (cnpj) {
+    const toolOut = await runTool("consulta_cnpj", { cnpj }, env);
+    if (toolOut.empresa) empresa = toolOut.empresa;
+    facts.push(`Resultado consulta_cnpj:\n${toolOut.content.slice(0, 8000)}`);
+  } else if (hasIndex && !/(s[oó]cio|endere[cç]o|cnae|capital|fantasia|situa[cç])/i.test(message)) {
+    // heurística leve: pedido de lista/filtro
+    if (/busca|procur|lista|empresa|restaurante|em\s+[A-ZÁÉÍÓÚ]|UF\b/i.test(message) || message.split(/\s+/).length >= 2) {
+      const ufMatch = message.match(/\b([A-Z]{2})\b/);
+      const toolOut = await runTool(
+        "busca_textual",
+        { q: message, uf: ufMatch?.[1] },
+        env,
+      );
+      facts.push(`Resultado busca_textual:\n${toolOut.content.slice(0, 8000)}`);
+    }
+  } else if (lastEmpresa) {
+    facts.push(`Empresa em contexto:\n${JSON.stringify(lastEmpresa).slice(0, 6000)}`);
   }
 
-  for (const turn of history.slice(-8)) {
+  const messages: Array<Record<string, unknown>> = [{ role: "system", content: SYSTEM }];
+  for (const turn of history.slice(-6)) {
     if (turn.role === "user" || turn.role === "assistant") {
       messages.push({ role: turn.role, content: turn.content });
     }
   }
+  if (facts.length) {
+    messages.push({
+      role: "system",
+      content: `Fatos obtidos pelas tools (use só isso; não invente):\n\n${facts.join("\n\n")}`,
+    });
+  }
   messages.push({ role: "user", content: message });
 
-  let empresa: Empresa | undefined = lastEmpresa ?? undefined;
-  const maxHops = 3;
-
   try {
-    for (let hop = 0; hop < maxHops; hop++) {
-      const result = await env.AI.run(
-        modelId(env) as keyof AiModels,
-        {
-          messages,
-          tools,
-        } as any,
-        gatewayOpts(env),
-      );
-
-      const calls = extractToolCalls(result);
-      if (calls.length) {
-        const call = calls[0];
-        messages.push({
-          role: "assistant",
-          content: JSON.stringify(call),
-        });
-        const toolOut = await runTool(call.name, call.arguments, env);
-        if (toolOut.empresa) empresa = toolOut.empresa;
-        messages.push({
-          role: "tool",
-          name: call.name,
-          content: toolOut.content,
-        });
-        continue;
-      }
-
-      const text = extractText(result).trim();
-      if (text) {
-        return { reply: text, empresa, source: "ai-gateway" };
-      }
-      break;
+    // NL polish via Gateway (sem tools no payload — mais compatível)
+    const result = await runLlm(env, messages);
+    const text = extractText(result).trim();
+    if (text) {
+      return { reply: text, empresa, source: "ai-gateway" };
     }
+
+    // retry com function-calling nativo se NL vazio
+    const tools = buildTools(hasIndex);
+    const withTools = await runLlm(env, messages, tools);
+    const calls = extractToolCalls(withTools);
+    if (calls.length) {
+      const call = calls[0];
+      const toolOut = await runTool(call.name, call.arguments, env);
+      if (toolOut.empresa) empresa = toolOut.empresa;
+      const messages2 = [
+        ...messages,
+        { role: "assistant", content: JSON.stringify(call) },
+        { role: "tool", content: toolOut.content },
+        { role: "user", content: "Com base no resultado da tool, responda ao usuário em PT-BR." },
+      ];
+      const final = await runLlm(env, messages2);
+      const finalText = extractText(final).trim();
+      if (finalText) return { reply: finalText, empresa, source: "ai-gateway" };
+    }
+    const text2 = extractText(withTools).trim();
+    if (text2) return { reply: text2, empresa, source: "ai-gateway" };
   } catch (err) {
     console.error("ai_gateway_error", err);
   }
 
-  // Fallback: regras locais (sem inventar)
   const fallback = await handleChatRules(message, env, lastEmpresa);
   return { ...fallback, source: `${fallback.source}+ai_fallback` };
 }
 
-/** SSE stream: tokens via Workers AI stream + gateway; tools resolvidos antes se CNPJ óbvio. */
 export async function handleChatStream(
   message: string,
   history: ChatTurn[],
   env: AiEnv,
   lastEmpresa: Empresa | null,
 ): Promise<Response> {
-  // Atalho: CNPJ explícito → lookup + stream curto do resumo via AI (ou texto fixo)
   const cnpj = extractCnpj(message);
   let empresa = lastEmpresa;
   let seed = message;
@@ -275,27 +325,18 @@ export async function handleChatStream(
 
   const stream = await env.AI.run(
     modelId(env) as keyof AiModels,
-    {
-      messages,
-      stream: true,
-    } as any,
+    { messages, stream: true } as any,
     gatewayOpts(env),
   );
 
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
-
-  const meta = {
-    ok: true,
-    source: "ai-gateway-stream",
-    empresa: empresa ?? null,
-  };
+  const meta = { ok: true, source: "ai-gateway-stream", empresa: empresa ?? null };
 
   (async () => {
     try {
       await writer.write(encoder.encode(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`));
-      // Workers AI stream is typically a ReadableStream of bytes/events
       const body = stream as ReadableStream;
       if (body && typeof body.getReader === "function") {
         const reader = body.getReader();

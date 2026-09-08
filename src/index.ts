@@ -1,6 +1,6 @@
 import { handleAuth, getSessionUser, type AuthEnv } from "./auth";
 import { handleChatAi, handleChatRules, handleChatStream, type ChatTurn } from "./chat-ai";
-import { extractCnpj, fetchEmpresa, onlyDigits, type Empresa } from "./tools";
+import { extractCnpj, fetchEmpresa, onlyDigits, readSearchManifest, buscaTextualR2, type Empresa } from "./tools";
 
 export interface Env extends AuthEnv {
   ASSETS: Fetcher;
@@ -43,6 +43,7 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/api/health") {
       const listed = await env.CNPJ_DATA.list({ limit: 5 });
+      const manifest = await readSearchManifest(env.CNPJ_DATA);
       return json({
         ok: true,
         service: "indicie",
@@ -55,6 +56,9 @@ export default {
           bucket: "indicie-cnpj",
           sampleKeys: listed.objects.map((o) => o.key),
           truncated: listed.truncated,
+          search_ready: Boolean(manifest),
+          snapshot: manifest?.snapshot ?? null,
+          search_key: manifest?.search_key ?? null,
         },
       });
     }
@@ -122,11 +126,24 @@ export default {
           ],
         });
       }
+      const uf = (url.searchParams.get("uf") || "").trim() || undefined;
+      const textual = await buscaTextualR2(env.CNPJ_DATA, q.length ? q : "", uf);
+      if (!textual.ok) {
+        return json({
+          empty: true,
+          q,
+          results: [],
+          note: textual.message,
+          error: textual.error,
+        });
+      }
       return json({
-        empty: true,
+        empty: textual.results.length === 0,
         q,
-        results: [],
-        note: "Busca por nome/cidade exige índice R2 (carga). Use CNPJ de 14 dígitos.",
+        uf: uf ?? null,
+        source: "r2-search",
+        snapshot: textual.snapshot,
+        results: textual.results,
       });
     }
 
