@@ -100,14 +100,17 @@ export function parseFiltersFromMessage(message: string): SearchFilters {
     if (act) out.cnae = act[0].toLowerCase();
   }
 
-  if (/\b(ativa|ativo)\b/i.test(raw)) out.situacao = "ATIVA";
-  else if (/\b(baixada|inapta|suspensa)\b/i.test(raw)) {
+  if (/\b(ativa|ativo|ativas|ativos)\b/i.test(raw)) out.situacao = "ATIVA";
+  else if (/\b(baixada|baixadas|inapta|suspensa)\b/i.test(raw)) {
     const m = raw.match(/\b(baixada|inapta|suspensa)\b/i);
     out.situacao = (m?.[1] || "BAIXADA").toUpperCase();
+  } else if (/^(qualquer|todas|todos|indiferente)$/i.test(raw.trim())) {
+    // bare "qualquer" while collecting situacao — handled in slot-fill too
   }
 
   if (/\bmatrizes?\b/i.test(raw)) out.matriz_filial = "1";
   else if (/\bfiliais?\b/i.test(raw)) out.matriz_filial = "2";
+  else if (/\b(ambas|ambos)\b/i.test(raw)) out.matriz_filial = "0";
 
   return out;
 }
@@ -125,8 +128,8 @@ function cleanPlace(s: string): string {
 }
 
 export function filtersReady(f: SearchFilters): boolean {
-  // OBRIGATÓRIO (form /buscar): UF + município + (cnae|q). Não afrouxar.
-  return Boolean(f.uf && f.municipio && (f.cnae || f.q));
+  // Completo antes de responder ao cliente: UF + município + CNAE + situação + matriz/filial
+  return Boolean(f.uf && f.municipio && (f.cnae || f.q) && f.situacao && f.matriz_filial);
 }
 
 export function nextFilterPrompt(f: SearchFilters): string {
@@ -135,8 +138,10 @@ export function nextFilterPrompt(f: SearchFilters): string {
   lines.push(`• **UF:** ${f.uf || "—"}`);
   lines.push(`• **Município:** ${f.municipio || "—"}`);
   lines.push(`• **CNAE / atividade:** ${f.cnae || f.q || "—"}`);
-  if (f.situacao) lines.push(`• **Situação:** ${f.situacao}`);
-  if (f.matriz_filial) lines.push(`• **Tipo:** ${f.matriz_filial === "1" ? "matriz" : "filial"}`);
+  lines.push(`• **Situação:** ${f.situacao || "—"}`);
+  const tipo =
+    f.matriz_filial === "1" ? "matriz" : f.matriz_filial === "2" ? "filial" : f.matriz_filial === "0" ? "ambas" : "—";
+  lines.push(`• **Matriz/filial:** ${tipo}`);
   lines.push("");
 
   if (!f.uf) {
@@ -145,8 +150,12 @@ export function nextFilterPrompt(f: SearchFilters): string {
     lines.push("Qual o **município**? (ou diga `qualquer`)");
   } else if (!f.cnae && !f.q) {
     lines.push("Qual a **atividade ou CNAE**? (ex.: restaurantes, dentistas)");
+  } else if (!f.situacao) {
+    lines.push("Qual a **situação**? (`ATIVA`, `BAIXADA` ou `qualquer`)");
+  } else if (!f.matriz_filial) {
+    lines.push("**Matriz**, **filial** ou **ambas**?");
   } else {
-    lines.push("Diga **buscar** pra listar — ou refine situação (ATIVA) / matriz-filial.");
+    lines.push("Formulário completo — listando…");
   }
   return lines.join("\n");
 }

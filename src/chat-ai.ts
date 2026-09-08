@@ -169,11 +169,13 @@ export async function handleChatRules(
 async function runSearch(env: AiEnv, filters: SearchFilters): Promise<ChatOut> {
   const hasIndex = await r2HasIndex(env.CNPJ_DATA);
   if (!hasIndex) {
+    const tipo =
+      filters.matriz_filial === "1" ? "matriz" : filters.matriz_filial === "2" ? "filial" : "ambas";
     return {
       reply: [
-        nextFilterPrompt(filters).split("\n").slice(0, 6).join("\n"),
+        `Filtros: **${filters.uf}** · **${filters.municipio}** · **${filters.cnae || filters.q}** · **${filters.situacao}** · **${tipo}**`,
         "",
-        "Filtros ok, mas o **índice de estabelecimentos** ainda não está no R2 (`search_key` vazio).",
+        "Formulário completo, mas o **índice de estabelecimentos** ainda não está no R2 (`search_key` vazio).",
         "Manda um **CNPJ** pra consultar agora, ou aguarde a carga.",
       ].join("\n"),
       source: "form-pending-index",
@@ -285,19 +287,47 @@ export async function handleChatAi(
 
   let patch = parseFiltersFromMessage(trimmed);
 
-  // Slot-fill na ordem UF → município → CNAE (resposta curta preenche o próximo vazio)
-  if (priorFilters?.uf && !priorFilters.municipio && !patch.municipio && !patch.uf && !patch.cnae && !patch.q) {
-    patch.municipio = /^qualquer|todos|todas$/i.test(trimmed) ? "qualquer" : trimmed;
+    // Slot-fill: UF → município → CNAE → situação → matriz/filial
+  const base = priorFilters || {};
+  if (base.uf && !base.municipio && !patch.municipio && !patch.uf && !patch.cnae && !patch.q) {
+    patch.municipio = /^(qualquer|todos|todas)$/i.test(trimmed) ? "qualquer" : trimmed;
   } else if (
-    priorFilters?.uf &&
-    (priorFilters.municipio || patch.municipio) &&
-    !priorFilters.cnae &&
-    !priorFilters.q &&
+    base.uf &&
+    (base.municipio || patch.municipio) &&
+    !base.cnae &&
+    !base.q &&
     !patch.cnae &&
     !patch.q &&
-    !patch.municipio
+    !patch.municipio &&
+    !patch.situacao &&
+    !patch.matriz_filial
   ) {
     patch.cnae = trimmed;
+  } else if (
+    base.uf &&
+    base.municipio &&
+    (base.cnae || base.q) &&
+    !base.situacao &&
+    !patch.situacao &&
+    !patch.matriz_filial
+  ) {
+    if (/^(qualquer|todas|todos|indiferente)$/i.test(trimmed)) patch.situacao = "QUALQUER";
+    else if (/^(ativa|ativas|ativo|ativos)$/i.test(trimmed)) patch.situacao = "ATIVA";
+    else if (/^(baixada|baixadas|inapta|suspensa)$/i.test(trimmed)) patch.situacao = trimmed.toUpperCase();
+    else patch.situacao = trimmed.toUpperCase();
+  } else if (
+    base.uf &&
+    base.municipio &&
+    (base.cnae || base.q) &&
+    (base.situacao || patch.situacao) &&
+    !base.matriz_filial &&
+    !patch.matriz_filial
+  ) {
+    if (/^(matriz|matrizes)$/i.test(trimmed)) patch.matriz_filial = "1";
+    else if (/^(filial|filiais)$/i.test(trimmed)) patch.matriz_filial = "2";
+    else if (/^(ambas|ambos|qualquer|todas|todos)$/i.test(trimmed)) patch.matriz_filial = "0";
+    else if (/matriz/i.test(trimmed)) patch.matriz_filial = "1";
+    else if (/filial/i.test(trimmed)) patch.matriz_filial = "2";
   }
 
   const filters = mergeFilters(priorFilters, patch);
