@@ -160,7 +160,7 @@ export async function handleChatRules(
 
   return {
     reply: nextFilterPrompt({}),
-    source: "filters",
+    source: "form",
     phase: "collect_filters",
     filters: {},
   };
@@ -176,7 +176,7 @@ async function runSearch(env: AiEnv, filters: SearchFilters): Promise<ChatOut> {
         "Filtros ok, mas o **índice de estabelecimentos** ainda não está no R2 (`search_key` vazio).",
         "Manda um **CNPJ** pra consultar agora, ou aguarde a carga.",
       ].join("\n"),
-      source: "filters-pending-index",
+      source: "form-pending-index",
       phase: "collect_filters",
       filters,
     };
@@ -267,33 +267,51 @@ export async function handleChatAi(
     const patch = parseFiltersFromMessage(trimmed);
     if (Object.keys(patch).length) {
       const filters = mergeFilters(priorFilters, patch);
-      if (filtersReady(filters) || wantsSearchNow(trimmed)) {
+      if (filtersReady(filters)) {
         return runSearch(env, filters);
       }
-      return { reply: nextFilterPrompt(filters), source: "filters", phase: "collect_filters", filters };
+      return { reply: nextFilterPrompt(filters), source: "form", phase: "collect_filters", filters };
     }
   }
 
   if (isGreeting(trimmed) && !priorFilters?.uf) {
     return {
       reply: ["Busca de empresas (Receita).", "", nextFilterPrompt({})].join("\n"),
-      source: "filters",
+      source: "form",
       phase: "collect_filters",
       filters: {},
     };
   }
 
-  const patch = parseFiltersFromMessage(trimmed);
-  if (/^qualquer|todos|todas$/i.test(trimmed) && priorFilters?.uf) {
-    patch.municipio = priorFilters.municipio || "qualquer";
+  let patch = parseFiltersFromMessage(trimmed);
+
+  // Slot-fill na ordem UF → município → CNAE (resposta curta preenche o próximo vazio)
+  if (priorFilters?.uf && !priorFilters.municipio && !patch.municipio && !patch.uf && !patch.cnae && !patch.q) {
+    patch.municipio = /^qualquer|todos|todas$/i.test(trimmed) ? "qualquer" : trimmed;
+  } else if (
+    priorFilters?.uf &&
+    (priorFilters.municipio || patch.municipio) &&
+    !priorFilters.cnae &&
+    !priorFilters.q &&
+    !patch.cnae &&
+    !patch.q &&
+    !patch.municipio
+  ) {
+    patch.cnae = trimmed;
   }
+
   const filters = mergeFilters(priorFilters, patch);
 
-  if (!filtersReady(filters) && !wantsSearchNow(trimmed)) {
-    return { reply: nextFilterPrompt(filters), source: "filters", phase: "collect_filters", filters };
+  // Nunca buscar sem formulário completo (mesmo com "buscar")
+  if (!filtersReady(filters)) {
+    return { reply: nextFilterPrompt(filters), source: "form", phase: "collect_filters", filters };
   }
 
-  return runSearch(env, filters);
+  if (wantsSearchNow(trimmed) || filtersReady(filters)) {
+    return runSearch(env, filters);
+  }
+
+  return { reply: nextFilterPrompt(filters), source: "form", phase: "collect_filters", filters };
 }
 
 export async function handleChatStream(

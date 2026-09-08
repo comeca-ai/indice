@@ -125,7 +125,7 @@ function cleanPlace(s: string): string {
 }
 
 export function filtersReady(f: SearchFilters): boolean {
-  // Formulário completo: UF + município + (CNAE ou atividade)
+  // OBRIGATÓRIO (form /buscar): UF + município + (cnae|q). Não afrouxar.
   return Boolean(f.uf && f.municipio && (f.cnae || f.q));
 }
 
