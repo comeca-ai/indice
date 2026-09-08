@@ -36,3 +36,8 @@ Teste: curl com cookie jar em signup, me, download/setor e logout.
 ## API
 health chat search empresa auth download
 MIT
+
+## Docs
+
+- [Filtros concorrentes](docs/competitor-filters.md)
+- [Gap analysis do form Indície](docs/indicie-form-gap-analysis.md)
