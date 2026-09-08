@@ -179,7 +179,14 @@ export async function handleChatRules(
 
   const hasIndex = await r2HasIndex(env.CNPJ_DATA);
   if (!hasIndex) {
+    const summary = [
+      `Filtros: **${filters.uf}** · **${filters.municipio}** · **${filters.cnae || filters.q}**`,
+      "",
+      "Índice de estabelecimentos ainda não está no R2 (`search_key` vazio).",
+      "Manda um **CNPJ** pra consultar agora, ou aguarde a carga do **carga**.",
+    ].join("\n");
     return {
+<<<<<<< Updated upstream
       reply: [
         "Ainda não tenho índice nacional no R2 pra busca por nome/cidade/CNAE (tipo “restaurantes em Florianópolis”).",
         "",
@@ -188,6 +195,12 @@ export async function handleChatRules(
         "Exemplos: `00.000.000/0001-91` · `33.000.167/0001-01`",
       ].join("\n"),
       source: "guide",
+=======
+      reply: summary,
+      source: "filters-pending-index",
+      phase: "collect_filters",
+      filters,
+>>>>>>> Stashed changes
     };
   }
 
@@ -228,6 +241,7 @@ export async function handleChatAi(
   let empresa: Empresa | undefined = lastEmpresa ?? undefined;
   const facts: string[] = [];
 
+<<<<<<< Updated upstream
   // 1) Tools locais (determinísticas) — não dependem do modelo entender function-calling
   const cnpj = extractCnpj(message);
   if (cnpj) {
@@ -247,6 +261,12 @@ export async function handleChatAi(
     }
   } else if (lastEmpresa) {
     facts.push(`Empresa em contexto:\n${JSON.stringify(lastEmpresa).slice(0, 6000)}`);
+=======
+  // CNPJ direto → detalhe determinístico (sem LLM inventar)
+  const cnpjDirect = extractCnpj(trimmed);
+  if (cnpjDirect) {
+    return handleChatRules(trimmed, env, lastEmpresa);
+>>>>>>> Stashed changes
   }
 
   const messages: Array<Record<string, unknown>> = [{ role: "system", content: SYSTEM }];
