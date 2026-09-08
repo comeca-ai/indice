@@ -7,8 +7,4 @@ dist/
 .env
 .env.*
 !.env.example
-
-# pipelines/cnpj local artifacts
-pipelines/cnpj/.venv/
-pipelines/cnpj/data/
-pipelines/cnpj/out/
+node_modules

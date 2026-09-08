@@ -1,0 +1,2 @@
+# Copie para .dev.vars (não commitado). Sem secrets reais no git.
+SESSION_SECRET=dev-local-change-me
